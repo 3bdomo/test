@@ -1,30 +1,65 @@
-
-
 import numpy as np
-from flask import Flask, request, render_template
-import pickle
+import pandas as pd
+import sklearn
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import torch
+from flask import Flask, request, jsonify
 
-#Create an app object using the Flask class. 
+# Import the model
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+def compute_similarity(x, y):
+    embedding_1 = model.encode(x, convert_to_tensor=True)
+    embedding_2 = model.encode(y, convert_to_tensor=True)
+    cosi = torch.nn.CosineSimilarity(dim=0)
+    output = (cosi(embedding_1, embedding_2) + 1) / 2
+    return output
+
+doc_id = "16zMI3339L9uZFGRG275w7DZ0-TlPMd4f8KDdDlrQQuA"
+tab_name = "Sheet1"
+url = "https://docs.google.com/spreadsheets/d/{0}/gviz/tq?tqx=out:csv&sheet={1}".format(doc_id, tab_name)[:-1]
+projects = pd.read_csv(url)
+
 app = Flask(__name__)
 
-#Load the trained model. (Pickle file)
-model = pickle.load(open('models/model.pkl', 'rb'))
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({"message": "Similarity checker"})
 
-@app.route('/')
-def home():
-    return render_template('index.html')
+@app.route("/similarity", methods=["POST"])
+def search_match():
+    data = request.json
+    idea = data.get("idea")
+    
+    if not idea:
+        return jsonify({"error": "Idea not provided"}), 400
 
+    max_score = 0
+    most_similar_project_index = None
+    for i in range(len(projects["Idea"])):
+        score = compute_similarity(idea, str(projects.loc[i, "Idea"])) * 100
+        if score > max_score:
+            max_score = score
+            most_similar_project_index = i
 
-@app.route('/predict',methods=['POST'])
-def predict():
+    if max_score > 80:
+        msg = "Match Found"
+        response_data = {
+            "match": projects.loc[most_similar_project_index, "Idea"],
+            "score": round(float(max_score), 2)
+        }
+    elif 70 <= max_score <= 80:
+        msg = "Neutral"
+        response_data = {
+            "match": projects.loc[most_similar_project_index, "Idea"],
+            "score": round(float(max_score), 2)
+        }
+    else:
+        msg = "No match"
+        response_data = None
 
-    int_features = [float(x) for x in request.form.values()] #Convert string inputs to float.
-    features = [np.array(int_features)]  #Convert to the form [[a, b]] for input to the model
-    prediction = model.predict(features)  # features Must be in the form [[a, b]]
+    return jsonify({"message": msg, "data": response_data})
 
-    output = round(prediction[0], 2)
-
-    return render_template('index.html', prediction_text='Percent with heart disease is {}'.format(output))
-
-if __name__ == '__main__':
-  app.run(port=5000)
+if __name__ == "__main__":
+    app.run(debug=True)
