@@ -8,3 +8,4 @@ scikit-learn==0.23.0
 sentence-transformers==2.7.0
 torch==2.3.0
 huggingface-hub==0.22.2
+requests==2.31.0
